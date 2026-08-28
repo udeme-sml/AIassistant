@@ -1,206 +1,325 @@
-// ==========================================================================
-// 1. INITIALISATION DE L'HÔTE NETTOYÉ (INSPECT-PROOF)
-// ==========================================================================
+const CORNER_TRIGGER = {
+  size: 25, // zone de 25 x 25 px dans le coin inférieur droit
+};
 
-let currentText = "";
-let pendingScreenshot = false;
+const LONG_ANSWER_TIMEOUT_MS = 50000;
 
-/* Création de l'hôte avec ton ID de productivité */
-const host = document.createElement("aside");
-host.id = "social-media-detox-shield";
+let cornerEnabled = true;
+let pointerWasInCorner = false;
+let waitingForAnswer = false;
+let activeLongRequestId = 0;
 
-// Ajout de métadonnées factices pour rendre l'extension crédible en cas d'inspection
-host.classList.add("detox-shield-active", "focus-mode");
-host.setAttribute("data-detox-version", "2.4.1");
+const popup = createPopup();
 
-// STYLE DE L'HÔTE PURGÉ : Totalement plat, neutre et invisible à l'œil nu
-host.style.display = "block";
-host.style.width = "0";
-host.style.height = "0";
-host.style.position = "absolute"; 
-host.style.pointerEvents = "none";
+document.addEventListener("keydown", handleKeyDown, true);
+document.addEventListener("mousemove", handleMouseMove, true);
+document.addEventListener("mousedown", hidePopupOnOutsideClick, true);
 
-/* Injection tout en bas de la page */
-document.body.appendChild(host);
-
-/* Création du Shadow DOM fermé (le contenu interne reste invisible pour le site) */
-const shadow = host.attachShadow({
-  mode: "closed",
-});
-
-// ==========================================================================
-// 2. LE POP-UP CACHÉ (IL EMBARK TOUTE LA LOGIQUE VISUELLE DE TON ANCIEN HÔTE)
-// ==========================================================================
-const popup = document.createElement("div");
-
-// C'est ICI qu'on place les styles de positionnement à l'abri des regards
-popup.style.position = "fixed";
-popup.style.left = "16px";
-popup.style.bottom = "16px";
-popup.style.zIndex = "2147483647"; // Ta priorité d'affichage maximale, désormais masquée
-
-// Conservation stricte de tes styles d'origine pour le pop-up
-popup.style.width = "fit-content";
-popup.style.minWidth = "120px";
-popup.style.maxWidth = "220px";
-popup.style.maxHeight = "160px";
-popup.style.background = "transparent";
-popup.style.color = "#e6e6e6";
-popup.style.padding = "0";
-popup.style.borderRadius = "0";
-popup.style.fontSize = "12px";
-popup.style.boxShadow = "none";
-popup.style.border = "none";
-popup.style.backdropFilter = "none";
-popup.style.webkitBackdropFilter = "none";
-popup.style.display = "none";
-popup.style.pointerEvents = "auto"; // Permet d'interagir avec le pop-up si besoin
-popup.style.overflow = "hidden";
-
-shadow.appendChild(popup);
-
-// ==========================================================================
-// 3. INTERCEPTION DE LA TOUCHE "TAB"
-// ==========================================================================
-document.addEventListener("keydown", (event) => {
-  if (event.code === "KeyS" && event.altKey && !event.ctrlKey && !event.metaKey) {
+function handleKeyDown(event) {
+  // Q = active/désactive le déclenchement par coin
+  if (isCornerToggle(event)) {
     event.preventDefault();
-    askAiAboutScreenshot();
+    event.stopPropagation();
+
+    cornerEnabled = !cornerEnabled;
+    pointerWasInCorner = false;
+
+    showPopup(
+      cornerEnabled
+        ? "Corner trigger ON"
+        : "Corner trigger OFF"
+    );
+
     return;
   }
 
-  if (event.key !== "Tab") return;
+  // Tab = déclenchement manuel, comme avant
+  if (isLongAnswerShortcut(event)) {
+    event.preventDefault();
+    event.stopPropagation();
 
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return;
+    if (!cornerEnabled || waitingForAnswer) return;
 
-  currentText = selection.toString().trim();
-  if (!currentText) return;
-
-  // Bloque le comportement natif (évite que le focus saute sur un bouton du site)
-  event.preventDefault();
-
-  // Structure du texte injectée uniquement dans le Shadow DOM isolé (Tes styles d'origine)
-  popup.innerHTML = `
-    <div
-      id="result"
-      style="
-        padding:0;
-        margin:0;
-        background:transparent;
-        border:none;
-        min-height:20px;
-        max-height:140px;
-        overflow-y:auto;
-        white-space:pre-wrap;
-        font-size:12px;
-        line-height:1.35;
-        color:#e6e6e6;
-        font-weight:400;
-        text-shadow:none;
-        max-width:220px;
-      "
-    ></div>
-  `;
-
-  popup.style.display = "block";
-
-  // Recherche locale dans le Shadow DOM (inaccessible depuis le document global)
-  const result = popup.querySelector("#result");
-  result.textContent = "Thinking ...";
-
-  // Envoi de la requête au script d'arrière-plan de l'extension
-  chrome.runtime.sendMessage(
-    {
-      type: "ASK_AI",
-      text: "Explain: " + currentText,
-    },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        result.textContent = "Error";
-        return;
-      }
-
-      if (!response) {
-        result.textContent = "Error";
-        return;
-      }
-
-      result.textContent = response.answer;
-    }
-  );
-});
-
-function showPopup(message) {
-  popup.innerHTML = `
-    <div
-      id="result"
-      style="
-        padding:0;
-        margin:0;
-        background:transparent;
-        border:none;
-        min-height:20px;
-        max-height:140px;
-        overflow-y:auto;
-        white-space:pre-wrap;
-        font-size:12px;
-        line-height:1.35;
-        color:#e6e6e6;
-        font-weight:400;
-        text-shadow:none;
-        max-width:220px;
-      "
-    ></div>
-  `;
-
-  popup.style.display = "block";
-
-  const result = popup.querySelector("#result");
-  result.textContent = message;
-  return result;
+    askLongScreenshotAnswer();
+  }
 }
 
-function askAiAboutScreenshot() {
-  if (pendingScreenshot) return;
-
-  pendingScreenshot = true;
-  const result = showPopup("Reading screenshot ...");
-
-  chrome.runtime.sendMessage(
-    {
-      type: "ASK_AI_SCREENSHOT",
-      text: "Analyse le screenshot , donne d'abord la réponse puis explique ton raisonnement .",
-    },
-    (response) => {
-      pendingScreenshot = false;
-
-      if (chrome.runtime.lastError) {
-        result.textContent = `Extension error: ${chrome.runtime.lastError.message}`;
-        return;
-      }
-
-      if (!response) {
-        result.textContent = "Extension error: No response from background script.";
-        return;
-      }
-
-      result.textContent = response.answer;
-    }
-  );
-}
-
-// ==========================================================================
-// 4. GESTION DE LA FERMETURE (CLIC EXTÉRIEUR)
-// ==========================================================================
-document.addEventListener("mousedown", (event) => {
-  const path = event.composedPath();
-
-  // Le clic est vérifié par rapport au pop-up réel ou à l'hôte
-  if (path.includes(popup) || path.includes(host)) {
+function handleMouseMove(event) {
+  if (!cornerEnabled) {
+    pointerWasInCorner = false;
     return;
   }
 
-  // Si on clique ailleurs sur la page, on masque le pop-up
-  popup.style.display = "none";
-});
+  // Ne déclenche rien si un bouton de souris est enfoncé
+  if (event.buttons !== 0) {
+    return;
+  }
+
+  const inRightEdge =
+    event.clientX >= window.innerWidth - CORNER_TRIGGER.size;
+
+  const inBottomEdge =
+    event.clientY >= window.innerHeight - CORNER_TRIGGER.size;
+
+  const isInCorner = inRightEdge && inBottomEdge;
+
+  /*
+   * Si la souris n'est plus dans le coin,
+   * on réarme le déclencheur.
+   */
+  if (!isInCorner) {
+    pointerWasInCorner = false;
+    return;
+  }
+
+  /*
+   * La souris est dans le coin.
+   *
+   * Si elle y était déjà au mousemove précédent,
+   * on ne redéclenche pas.
+   */
+  if (pointerWasInCorner) {
+    return;
+  }
+
+  /*
+   * On marque immédiatement le coin comme occupé.
+   *
+   * Pour pouvoir redéclencher plus tard,
+   * il faudra sortir du coin puis y revenir.
+   */
+  pointerWasInCorner = true;
+
+  if (waitingForAnswer) {
+    return;
+  }
+
+  askLongScreenshotAnswer();
+}
+
+function askLongScreenshotAnswer() {
+  const requestId = Date.now();
+
+  activeLongRequestId = requestId;
+  waitingForAnswer = true;
+
+  showPopup("reading");
+
+  /*
+   * Watchdog côté content script.
+   *
+   * Même si le service worker, la capture ou l'API
+   * ne répondent jamais, "reading" ne restera pas
+   * affiché indéfiniment.
+   */
+  const timeout = setTimeout(() => {
+    if (activeLongRequestId !== requestId) return;
+
+    activeLongRequestId = 0;
+    waitingForAnswer = false;
+
+    showPopup("timeout");
+  }, LONG_ANSWER_TIMEOUT_MS);
+
+  chrome.runtime.sendMessage(
+    {
+      type: "ASK_LONG_SCREENSHOT",
+    },
+    (response) => {
+      /*
+       * Ignore une réponse arrivée après le timeout
+       * ou appartenant à une ancienne requête.
+       */
+      if (activeLongRequestId !== requestId) {
+        return;
+      }
+
+      clearTimeout(timeout);
+
+      activeLongRequestId = 0;
+      waitingForAnswer = false;
+
+      if (chrome.runtime.lastError) {
+        showPopup(
+          chrome.runtime.lastError.message
+        );
+        return;
+      }
+
+      if (!response?.ok) {
+        showPopup(
+          response?.answer || "Erreur."
+        );
+        return;
+      }
+
+      showPopup(
+        response.answer || "Erreur."
+      );
+    }
+  );
+}
+
+function createPopup() {
+  const host = document.createElement("aside");
+
+  host.id = "social-media-detox-shield";
+
+  host.classList.add(
+    "detox-shield-active",
+    "focus-mode"
+  );
+
+  host.setAttribute(
+    "data-detox-version",
+    "2.4.1"
+  );
+
+  Object.assign(host.style, {
+    display: "block",
+    width: "0",
+    height: "0",
+    position: "absolute",
+    pointerEvents: "none",
+  });
+
+  const shadow = host.attachShadow({
+    mode: "closed",
+  });
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    #answer {
+      display: none;
+
+      position: fixed;
+
+      left: 16px;
+      bottom: 16px;
+
+      z-index: 2147483647;
+
+      width: fit-content;
+
+      min-width: 96px;
+      max-width: 176px;
+      max-height: 86px;
+
+      overflow-y: auto;
+
+      padding: 0;
+      margin: 0;
+
+      border: none;
+      border-radius: 0;
+
+      background: transparent;
+
+      color: #eeeeee;
+
+      box-shadow: none;
+
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+
+      font-size: 10px;
+      line-height: 1.35;
+      font-weight: 400;
+
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+      pointer-events: auto;
+
+      white-space: pre-wrap;
+
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+
+      text-shadow: none;
+    }
+
+    #answer::-webkit-scrollbar {
+      display: none;
+
+      width: 0;
+      height: 0;
+    }
+  `;
+
+  const answer =
+    document.createElement("div");
+
+  answer.id = "answer";
+
+  shadow.append(
+    style,
+    answer
+  );
+
+  document.body.appendChild(host);
+
+  return {
+    answer,
+    host,
+  };
+}
+
+function showPopup(text) {
+  popup.answer.textContent = text;
+
+  popup.answer.style.display =
+    "block";
+}
+
+function hidePopupOnOutsideClick(event) {
+  if (
+    !event
+      .composedPath()
+      .includes(popup.host)
+  ) {
+    popup.answer.style.display =
+      "none";
+  }
+}
+
+function isCornerToggle(event) {
+  return (
+    event.key?.toLowerCase() === "q" &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !isEditableElement(event.target)
+  );
+}
+
+function isLongAnswerShortcut(event) {
+  return (
+    event.key === "Tab" &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !isEditableElement(event.target)
+  );
+}
+
+function isEditableElement(element) {
+  if (!element) {
+    return false;
+  }
+
+  return (
+    element.isContentEditable ||
+    [
+      "INPUT",
+      "TEXTAREA",
+      "SELECT",
+    ].includes(element.tagName)
+  );
+}

@@ -1,10 +1,12 @@
-const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+const OPENAI_MODEL = "gpt-5.6-sol";
 const REQUEST_TIMEOUT_MS = 30000;
 const MAX_IMAGE_LENGTH = 4_500_000;
 
 const MODES = {
   choice: {
-    maxTokens: 32,
+    maxOutputTokens: 32,
+    reasoningEffort: "low",
     prompt: [
       "Analyse la capture d'ecran.",
       "Utilise ce mode uniquement pour une page qui contient exactement une seule question QCM a choix unique.",
@@ -14,19 +16,20 @@ const MODES = {
     system: [
       "Tu analyses une capture d'ecran pour une extension Chrome.",
       "Mode strict QCM: reponds seulement si l'image montre exactement une seule question QCM a choix unique.",
-      "Reponses autorisees: CHOIX=A jusqu'a CHOIX=Z, ou CHOIX=?",
+      "Reponses autorisees: CHOIX=A jusqu'a CHOIX=Z ",
       "N'ajoute aucun autre texte.",
     ].join("\n"),
   },
   long: {
-    maxTokens: null,
+    maxOutputTokens: null,
+    reasoningEffort: "medium",
     prompt: [
       "Analyse la capture d'ecran et reponds en francais.",
       "Si c'est une question ou un exercice, donne d'abord la ou les reponses finales.",
       "Ensuite seulement, ajoute les explications et le raisonnement utile.",
     ].join("\n"),
     system: [
-      "Tu analyses une capture d'ecran .",
+      "Tu analyses une capture d'ecran.",
       "Reponds en francais de maniere detaillee, utile et naturelle.",
       "Commence toujours par la reponse finale, puis explique apres.",
       "Ne te limite pas a une reponse courte: donne les explications necessaires.",
@@ -41,15 +44,16 @@ export default {
     }
 
     if (request.method === "GET") {
-      return jsonResponse("HoverGPT backend is running.");
+      return jsonResponse("HoverGPT OpenAI backend is running.");
     }
 
     if (request.method !== "POST") {
       return jsonResponse("Method not allowed.", 405);
     }
 
-    if (!env.MISTRALKEY) {
-      return jsonResponse("Missing MISTRALKEY environment variable.", 500);
+    const apiKey = env.OPENAI_API_KEY || env.OPENAIKEY;
+    if (!apiKey) {
+      return jsonResponse("Missing OPENAI_API_KEY environment variable.", 500);
     }
 
     if (!isAuthorized(request, env)) {
@@ -76,37 +80,63 @@ export default {
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const mistralPayload = {
-        model: "mistral-small-2506",
-        messages: buildMessages(mode.system, mode.prompt, image),
-        temperature: 0,
+      const openAiPayload = {
+        model: OPENAI_MODEL,
+        reasoning: {
+          effort: mode.reasoningEffort,
+        },
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: mode.system,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: mode.prompt,
+              },
+              {
+                type: "input_image",
+                image_url: image,
+                detail: "auto",
+              },
+            ],
+          },
+        ],
       };
 
-      if (mode.maxTokens) {
-        mistralPayload.max_tokens = mode.maxTokens;
+      if (mode.maxOutputTokens) {
+        openAiPayload.max_output_tokens = mode.maxOutputTokens;
       }
 
-      const response = await fetch(MISTRAL_URL, {
+      const response = await fetch(OPENAI_URL, {
         method: "POST",
         signal: controller.signal,
         headers: {
-          Authorization: `Bearer ${env.MISTRALKEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(mistralPayload),
+        body: JSON.stringify(openAiPayload),
       });
 
       const result = await readJson(response);
       if (!response.ok) {
-        return jsonResponse(getMistralErrorMessage(result, response.status), response.status);
+        return jsonResponse(getOpenAiErrorMessage(result, response.status), response.status);
       }
 
       return jsonResponse(normalizeAnswer(result, modeName));
     } catch (error) {
       const message =
         error.name === "AbortError"
-          ? `Mistral request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`
-          : error.message || "Mistral request failed.";
+          ? `OpenAI request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`
+          : error.message || "OpenAI request failed.";
 
       return jsonResponse(message, 504);
     } finally {
@@ -114,28 +144,6 @@ export default {
     }
   },
 };
-
-function buildMessages(system, prompt, image) {
-  return [
-    {
-      role: "system",
-      content: system,
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: prompt,
-        },
-        {
-          type: "image_url",
-          image_url: image,
-        },
-      ],
-    },
-  ];
-}
 
 async function readJson(requestOrResponse) {
   try {
@@ -152,7 +160,7 @@ function normalizeImage(image) {
 }
 
 function normalizeAnswer(result, mode) {
-  const answer = String(result?.choices?.[0]?.message?.content || "")
+  const answer = extractResponseText(result)
     .replace(/\r/g, "")
     .replace(/[*_`>#~]/g, "")
     .trim();
@@ -160,11 +168,28 @@ function normalizeAnswer(result, mode) {
   return (mode === "choice" ? answer.slice(0, 80) : answer) || "No answer";
 }
 
-function getMistralErrorMessage(result, status) {
+function extractResponseText(result) {
+  if (typeof result?.output_text === "string") {
+    return result.output_text;
+  }
+
+  const parts = [];
+  for (const item of result?.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") {
+        parts.push(content.text);
+      }
+    }
+  }
+
+  return parts.join("\n");
+}
+
+function getOpenAiErrorMessage(result, status) {
   return (
     result?.error?.message ||
     result?.message ||
-    `Mistral API error (${status})`
+    `OpenAI API error (${status})`
   );
 }
 
