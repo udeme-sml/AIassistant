@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Study_detox Settings</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.4;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+        color: #111827;
+      }
+
+      main {
+        width: min(560px, calc(100vw - 32px));
+        margin: 40px auto;
+      }
+
+      h1 {
+        margin: 0 0 24px;
+        font-size: 24px;
+        font-weight: 650;
+      }
+
+      form {
+        display: grid;
+        gap: 18px;
+      }
+
+      fieldset {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      legend,
+      label > span {
+        display: block;
+        margin-bottom: 8px;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .choices {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .choice {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        font-size: 14px;
+      }
+
+      .choice span {
+        margin: 0;
+        color: inherit;
+        font-size: inherit;
+        font-weight: 500;
+      }
+
+      input[type="url"],
+      input[type="password"] {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 42px;
+        padding: 0 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        color: inherit;
+        font: inherit;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      button {
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid #111827;
+        border-radius: 8px;
+        background: #111827;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        border-color: #cbd5e1;
+        background: #ffffff;
+        color: #111827;
+      }
+
+      #status {
+        min-height: 20px;
+        color: #047857;
+        font-size: 13px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #111827;
+          color: #f9fafb;
+        }
+
+        legend,
+        label > span {
+          color: #d1d5db;
+        }
+
+        .choice,
+        input[type="url"],
+        input[type="password"],
+        button.secondary {
+          border-color: #374151;
+          background: #1f2937;
+          color: #f9fafb;
+        }
+
+        button {
+          border-color: #f9fafb;
+          background: #f9fafb;
+          color: #111827;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Study_detox Settings</h1>
+
+      <form id="settings-form">
+        <fieldset>
+          <legend>Backend</legend>
+          <div class="choices">
+            <label class="choice">
+              <input type="radio" name="backend" value="remote">
+              <span>Cloudflare Worker</span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="backend" value="local">
+              <span>Local FastAPI</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          <span>Endpoint URL</span>
+          <input id="api-url" type="url" spellcheck="false" required>
+        </label>
+
+        <label>
+          <span>Token</span>
+          <input id="api-token" type="password" autocomplete="off">
+        </label>
+
+        <div class="actions">
+          <button type="submit">Save</button>
+          <button id="test-backend" class="secondary" type="button">Test</button>
+          <span id="status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -216,7 +216,7 @@ function createPopup() {
 
       background: transparent;
 
-      color: #eeeeee;
+      color: rgba(238, 238, 238, 0.8);
 
       box-shadow: none;
 
@@ -271,9 +271,28 @@ function createPopup() {
 
 function showPopup(text) {
   popup.answer.textContent = text;
+  renderLatex(popup.answer);
 
   popup.answer.style.display =
     "block";
+}
+
+function renderLatex(element) {
+  if (typeof renderMathInElement !== "function") {
+    return;
+  }
+
+  renderMathInElement(element, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "\\[", right: "\\]", display: true },
+      { left: "\\(", right: "\\)", display: false },
+      { left: "$", right: "$", display: false },
+    ],
+    output: "mathml",
+    throwOnError: false,
+    strict: "ignore",
+  });
 }
 
 function hidePopupOnOutsideClick(event) {

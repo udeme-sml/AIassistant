@@ -8,7 +8,11 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": [
+        "vendor/katex/katex.min.js",
+        "vendor/katex/contrib/auto-render.min.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -19,8 +23,11 @@
 
   "permissions": [
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage"
   ],
+
+  "options_page": "options.html",
 
   "background": {
     "service_worker": "background.js"

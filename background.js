@@ -1,5 +1,12 @@
-const API_URL = "https://backend-ai.tarekzerroug2.workers.dev";
+importScripts("config.js");
+
+const DEFAULT_API_BACKEND = "remote";
 const API_TIMEOUT_MS = 45000;
+const API_SETTINGS_DEFAULTS = {
+  hovergptApiBackend: DEFAULT_API_BACKEND,
+  hovergptApiUrl: "",
+  hovergptApiToken: "",
+};
 
 const CHOICE_EMOJIS = {
   A: "🌲",
@@ -71,16 +78,29 @@ async function captureVisibleTab(windowId, mode) {
 }
 
 async function requestAnalysis(mode, image) {
+  const apiConfig = await getApiConfig();
+
+  if (!apiConfig.url) {
+    throw new Error(
+      "URL backend manquante. Configure HOVERGPT_REMOTE_API_URL dans extension.env ou renseigne l'URL dans les options."
+    );
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (apiConfig.token) {
+    headers["x-hovergpt-token"] = apiConfig.token;
+  }
 
   try {
-    const response = await fetch(API_URL, {
+    const response = await fetch(apiConfig.url, {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         mode,
         image,
@@ -104,6 +124,34 @@ async function requestAnalysis(mode, image) {
   }
 }
 
+async function getApiConfig() {
+  const apiBackends = await HoverGptConfig.getApiBackends();
+  const settings = await chrome.storage.local.get(API_SETTINGS_DEFAULTS);
+  const backend = Object.prototype.hasOwnProperty.call(
+    apiBackends,
+    settings.hovergptApiBackend
+  )
+    ? settings.hovergptApiBackend
+    : DEFAULT_API_BACKEND;
+  const configuredUrl =
+    typeof settings.hovergptApiUrl === "string"
+      ? settings.hovergptApiUrl.trim()
+      : "";
+
+  return {
+    backend,
+    url: normalizeApiUrl(configuredUrl || apiBackends[backend], apiBackends),
+    token:
+      typeof settings.hovergptApiToken === "string"
+        ? settings.hovergptApiToken.trim()
+        : "",
+  };
+}
+
+function normalizeApiUrl(url, apiBackends) {
+  return HoverGptConfig.normalizeUrl(url || apiBackends[DEFAULT_API_BACKEND]);
+}
+
 function extractAnswer(result) {
   if (typeof result === "string") return result.trim();
 
@@ -111,6 +159,7 @@ function extractAnswer(result) {
     result?.answer ||
       result?.response ||
       result?.text ||
+      result?.detail ||
       result?.message ||
       ""
   ).trim();
